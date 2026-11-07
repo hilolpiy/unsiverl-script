@@ -1,0 +1,1156 @@
+--[[
+  XM9 GUI (Roblox LocalScript)
+
+  SETUP:
+  1. Open your game in Roblox Studio.
+  2. Insert a LocalScript into StarterPlayer > StarterPlayerScripts.
+  3. Paste this whole script in and press Play.
+
+  CONTROLS:
+  - Drag the title bar to move the window.
+  - "-" minimizes, "X" hides. RightShift shows/hides the window.
+  - Tabs: Visuals (ESP) | Combat (Aimbot) | Movement | Fling | Players (Teleport)
+  - Aimbot: turn it on, then hold Right Mouse Button.
+  - Fly (Movement tab, or press F): WASD to move, Space up, Left Ctrl down.
+  - Fling (Fling tab): pick targets, START FLING launches them, STOP FLING stops.
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+
+-- ======================================================
+-- THEME
+-- ======================================================
+local THEME = {
+	bg = Color3.fromRGB(14, 14, 20),
+	panel = Color3.fromRGB(26, 26, 38),
+	panelHover = Color3.fromRGB(36, 36, 52),
+	accent = Color3.fromRGB(124, 77, 255),
+	accent2 = Color3.fromRGB(0, 200, 255),
+	text = Color3.fromRGB(240, 240, 250),
+	sub = Color3.fromRGB(150, 150, 170),
+	off = Color3.fromRGB(70, 70, 88),
+}
+
+local function corner(inst, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius or 8)
+	c.Parent = inst
+	return c
+end
+
+local function stroke(inst, color, thickness, transparency)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Thickness = thickness or 1
+	s.Transparency = transparency or 0
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = inst
+	return s
+end
+
+local function tween(inst, props, time)
+	TweenService:Create(inst, TweenInfo.new(time or 0.15, Enum.EasingStyle.Quad), props):Play()
+end
+
+-- ======================================================
+-- FEATURE LOGIC
+-- ======================================================
+
+-- ---------- ESP ----------
+local espEnabled = false
+local espObjects = {}
+
+local function clearESP(plr)
+	local obj = espObjects[plr]
+	if obj then
+		if obj.highlight then obj.highlight:Destroy() end
+		if obj.gui then obj.gui:Destroy() end
+		espObjects[plr] = nil
+	end
+end
+
+local function applyESP(plr)
+	if plr == player then return end
+	clearESP(plr)
+
+	local char = plr.Character
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = THEME.accent
+	highlight.FillTransparency = 0.6
+	highlight.OutlineColor = THEME.accent2
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = char
+
+	local gui = Instance.new("BillboardGui")
+	gui.Adornee = root
+	gui.Size = UDim2.fromOffset(140, 36)
+	gui.StudsOffset = Vector3.new(0, 3.5, 0)
+	gui.AlwaysOnTop = true
+	gui.Parent = char
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0.3
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 14
+	label.Text = plr.Name
+	label.Parent = gui
+
+	espObjects[plr] = {highlight = highlight, gui = gui, label = label}
+end
+
+local function refreshESP()
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if espEnabled then applyESP(plr) else clearESP(plr) end
+	end
+end
+
+RunService.Heartbeat:Connect(function()
+	if not espEnabled then return end
+	local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not myRoot then return end
+	for plr, obj in pairs(espObjects) do
+		local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+		if root and obj.label then
+			local dist = math.floor((root.Position - myRoot.Position).Magnitude)
+			obj.label.Text = plr.Name .. "\n[" .. dist .. " studs]"
+		end
+	end
+end)
+
+-- ---------- AIMBOT (hold Right Mouse Button) ----------
+local aimbotEnabled = false
+local aiming = false
+
+local function getClosestTarget()
+	local camera = workspace.CurrentCamera
+	if not camera then return nil end
+	local mousePos = UserInputService:GetMouseLocation()
+	local closest, shortest = nil, math.huge
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local head = plr.Character:FindFirstChild("Head")
+			local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+			if head and hum and hum.Health > 0 then
+				local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
+				if onScreen then
+					local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+					if dist < shortest then
+						shortest = dist
+						closest = head
+					end
+				end
+			end
+		end
+	end
+	return closest
+end
+
+RunService.RenderStepped:Connect(function()
+	if not (aimbotEnabled and aiming) then return end
+	local camera = workspace.CurrentCamera
+	local target = getClosestTarget()
+	if camera and target then
+		camera.CFrame = CFrame.new(camera.CFrame.Position, target.Position)
+	end
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		aiming = true
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		aiming = false
+	end
+end)
+
+-- ---------- SPEED ----------
+local NORMAL_SPEED = 16
+local MIN_SPEED, MAX_SPEED = 1, 250
+local currentSpeed = NORMAL_SPEED
+local speedEnabled = false -- off = normal game speed, on = forced walk speed
+
+local function applySpeed()
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+	if speedEnabled then
+		hum.WalkSpeed = currentSpeed
+	else
+		hum.WalkSpeed = NORMAL_SPEED -- restore the game's normal speed
+	end
+end
+
+-- keep the forced speed on (some games reset WalkSpeed every frame)
+RunService.Heartbeat:Connect(function()
+	if not speedEnabled then return end
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum and hum.WalkSpeed ~= currentSpeed then
+		hum.WalkSpeed = currentSpeed
+	end
+end)
+
+player.CharacterAdded:Connect(function()
+	task.wait(0.5)
+	applySpeed()
+end)
+
+-- ---------- FLY ----------
+local flyEnabled = false
+local flySpeed = 50
+local MIN_FLY, MAX_FLY = 5, 300
+local flyAttachment, flyVelocity
+
+local function stopFly()
+	if flyVelocity then flyVelocity:Destroy() flyVelocity = nil end
+	if flyAttachment then flyAttachment:Destroy() flyAttachment = nil end
+end
+
+local function startFly()
+	stopFly()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	flyAttachment = Instance.new("Attachment")
+	flyAttachment.Parent = root
+
+	flyVelocity = Instance.new("LinearVelocity")
+	flyVelocity.Attachment0 = flyAttachment
+	flyVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+	flyVelocity.MaxForce = math.huge
+	flyVelocity.VectorVelocity = Vector3.zero
+	flyVelocity.Parent = root
+end
+
+-- WASD / thumbstick moves you, Space goes up, Left Ctrl goes down
+RunService.RenderStepped:Connect(function()
+	if not (flyEnabled and flyVelocity) then return end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	local move = hum.MoveDirection * flySpeed
+	local vertical = 0
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vertical += 1 end
+	if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then vertical -= 1 end
+
+	flyVelocity.VectorVelocity = Vector3.new(move.X, vertical * flySpeed, move.Z)
+end)
+
+player.CharacterAdded:Connect(function()
+	task.wait(0.5)
+	if flyEnabled then startFly() end
+end)
+
+-- ========== FLING (multi-target, based on zqyDSUWX's fling mechanic) ==========
+local flingActive = false
+local selectedTargets = {}
+local flingOldPos = nil
+local flingFPDH = nil
+
+-- filled in by the Fling tab UI below
+local updateFlingStatus = function() end
+local updateFlingList = function() end
+
+local function flingNotify(title, text, duration)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title = title,
+			Text = text,
+			Duration = duration or 5,
+		})
+	end)
+end
+
+local function skidFling(targetPlayer)
+	local myChar = player.Character
+	local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+	local myRoot = myHum and myHum.RootPart
+	if not (myChar and myHum and myRoot) then
+		return flingNotify("Error", "Your character is not ready", 2)
+	end
+
+	local tChar = targetPlayer.Character
+	if not tChar then return end
+
+	local tHum = tChar:FindFirstChildOfClass("Humanoid")
+	local tRoot = tHum and tHum.RootPart
+	local tHead = tChar:FindFirstChild("Head")
+	local accessory = tChar:FindFirstChildOfClass("Accessory")
+	local handle = accessory and accessory:FindFirstChild("Handle")
+
+	if myRoot.Velocity.Magnitude < 50 then
+		flingOldPos = myRoot.CFrame
+	end
+
+	if tHum and tHum.Sit then
+		return flingNotify("Error", targetPlayer.Name .. " is sitting", 2)
+	end
+
+	if tHead then
+		workspace.CurrentCamera.CameraSubject = tHead
+	elseif handle then
+		workspace.CurrentCamera.CameraSubject = handle
+	elseif tHum and tRoot then
+		workspace.CurrentCamera.CameraSubject = tHum
+	end
+
+	if not tChar:FindFirstChildWhichIsA("BasePart") then return end
+
+	local flingPos = function(basePart, pos, ang)
+		myRoot.CFrame = CFrame.new(basePart.Position) * pos * ang
+		myChar:SetPrimaryPartCFrame(CFrame.new(basePart.Position) * pos * ang)
+		myRoot.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
+		myRoot.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+	end
+
+	local spinBasePart = function(basePart)
+		local timeToWait = 2
+		local startTime = tick()
+		local angle = 0
+		repeat
+			if myRoot and tHum then
+				if basePart.Velocity.Magnitude < 50 then
+					angle = angle + 100
+					flingPos(basePart, CFrame.new(0, 1.5, 0) + tHum.MoveDirection * basePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(angle), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, 0) + tHum.MoveDirection * basePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(angle), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, 1.5, 0) + tHum.MoveDirection * basePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(angle), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, 0) + tHum.MoveDirection * basePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(angle), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, 1.5, 0) + tHum.MoveDirection, CFrame.Angles(math.rad(angle), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, 0) + tHum.MoveDirection, CFrame.Angles(math.rad(angle), 0, 0))
+					task.wait()
+				else
+					flingPos(basePart, CFrame.new(0, 1.5, tHum.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, -tHum.WalkSpeed), CFrame.Angles(0, 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, 1.5, tHum.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0))
+					task.wait()
+					flingPos(basePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0))
+					task.wait()
+				end
+			end
+			task.wait()
+		until startTime + timeToWait < tick() or not flingActive
+	end
+
+	pcall(function() workspace.FallenPartsDestroyHeight = 0/0 end)
+
+	local bv = Instance.new("BodyVelocity")
+	bv.Parent = myRoot
+	bv.Velocity = Vector3.zero
+	bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+	myHum:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+	if tRoot then
+		spinBasePart(tRoot)
+	elseif tHead then
+		spinBasePart(tHead)
+	elseif handle then
+		spinBasePart(handle)
+	else
+		bv:Destroy()
+		return flingNotify("Error", targetPlayer.Name .. " has no valid parts", 2)
+	end
+
+	bv:Destroy()
+	myHum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+	workspace.CurrentCamera.CameraSubject = myHum
+
+	-- reset our own character back where we were
+	if flingOldPos then
+		repeat
+			myRoot.CFrame = flingOldPos * CFrame.new(0, 0.5, 0)
+			myChar:SetPrimaryPartCFrame(flingOldPos * CFrame.new(0, 0.5, 0))
+			myHum:ChangeState("GettingUp")
+			for _, part in ipairs(myChar:GetChildren()) do
+				if part:IsA("BasePart") then
+					part.Velocity, part.RotVelocity = Vector3.new(), Vector3.new()
+				end
+			end
+			task.wait()
+		until (myRoot.Position - flingOldPos.Position).Magnitude < 25
+		pcall(function()
+			if flingFPDH then workspace.FallenPartsDestroyHeight = flingFPDH end
+		end)
+	end
+end
+
+local function startFling()
+	if flingActive then return end
+
+	local count = 0
+	for _ in pairs(selectedTargets) do count = count + 1 end
+	if count == 0 then
+		flingNotify("Fling", "No targets selected!", 2)
+		return
+	end
+
+	flingFPDH = flingFPDH or workspace.FallenPartsDestroyHeight
+	flingActive = true
+	updateFlingStatus()
+	flingNotify("Started", "Flinging " .. count .. " target(s)", 2)
+
+	task.spawn(function()
+		while flingActive do
+			local validTargets = {}
+			for name, plr in pairs(selectedTargets) do
+				if plr and plr.Parent then
+					validTargets[name] = plr
+				else
+					selectedTargets[name] = nil
+				end
+			end
+			updateFlingList()
+
+			for _, t in pairs(validTargets) do
+				if not flingActive then break end
+				pcall(skidFling, t)
+				task.wait(0.1)
+			end
+
+			updateFlingStatus()
+			task.wait(0.5)
+		end
+	end)
+end
+
+local function stopFling()
+	if not flingActive then return end
+	flingActive = false
+	updateFlingStatus()
+	flingNotify("Stopped", "Fling has been stopped", 2)
+end
+
+-- ======================================================
+-- WINDOW
+-- ======================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "XM9_GUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local FULL_SIZE = UDim2.fromOffset(450, 330)
+local MINI_SIZE = UDim2.fromOffset(450, 38)
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = FULL_SIZE
+main.Position = UDim2.new(0.5, -225, 0.5, -165)
+main.BackgroundColor3 = THEME.bg
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+main.Parent = screenGui
+corner(main, 12)
+stroke(main, THEME.accent, 1.5, 0.35)
+
+-- Title bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 38)
+titleBar.BackgroundColor3 = THEME.panel
+titleBar.BorderSizePixel = 0
+titleBar.Parent = main
+
+local titleGradient = Instance.new("UIGradient")
+titleGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 30, 130)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 60, 100)),
+})
+titleGradient.Rotation = 0
+titleGradient.Parent = titleBar
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, -90, 1, 0)
+titleText.Position = UDim2.fromOffset(14, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "XM9 GUI"
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.TextColor3 = THEME.text
+titleText.Font = Enum.Font.GothamBlack
+titleText.TextSize = 18
+titleText.Parent = titleBar
+
+local accentLine = Instance.new("Frame")
+accentLine.Size = UDim2.new(1, 0, 0, 2)
+accentLine.Position = UDim2.new(0, 0, 1, -2)
+accentLine.BorderSizePixel = 0
+accentLine.BackgroundColor3 = THEME.accent2
+accentLine.Parent = titleBar
+
+local lineGradient = Instance.new("UIGradient")
+lineGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, THEME.accent),
+	ColorSequenceKeypoint.new(1, THEME.accent2),
+})
+lineGradient.Parent = accentLine
+
+local function makeTitleButton(text, xOffset)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(28, 24)
+	b.Position = UDim2.new(1, xOffset, 0.5, -12)
+	b.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	b.BackgroundTransparency = 0.6
+	b.Text = text
+	b.TextColor3 = THEME.text
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 16
+	b.AutoButtonColor = false
+	b.Parent = titleBar
+	corner(b, 6)
+	b.MouseEnter:Connect(function() tween(b, {BackgroundTransparency = 0.2}) end)
+	b.MouseLeave:Connect(function() tween(b, {BackgroundTransparency = 0.6}) end)
+	return b
+end
+
+local closeButton = makeTitleButton("X", -38)
+local miniButton = makeTitleButton("-", -70)
+
+-- Body
+local body = Instance.new("Frame")
+body.Size = UDim2.new(1, 0, 1, -38)
+body.Position = UDim2.fromOffset(0, 38)
+body.BackgroundTransparency = 1
+body.Parent = main
+
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 110, 1, 0)
+sidebar.BackgroundColor3 = THEME.panel
+sidebar.BackgroundTransparency = 0.4
+sidebar.BorderSizePixel = 0
+sidebar.Parent = body
+
+local content = Instance.new("Frame")
+content.Size = UDim2.new(1, -122, 1, -16)
+content.Position = UDim2.fromOffset(116, 8)
+content.BackgroundTransparency = 1
+content.Parent = body
+
+local hint = Instance.new("TextLabel")
+hint.Size = UDim2.new(1, -8, 0, 30)
+hint.Position = UDim2.new(0, 4, 1, -34)
+hint.BackgroundTransparency = 1
+hint.Text = "RightShift = hide / show"
+hint.TextColor3 = THEME.sub
+hint.Font = Enum.Font.Gotham
+hint.TextSize = 11
+hint.TextWrapped = true
+hint.Parent = sidebar
+
+-- Dragging
+do
+	local dragging, dragStart, startPos
+	titleBar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = main.Position
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - dragStart
+			main.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+
+-- Minimize / close
+local minimized = false
+miniButton.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	body.Visible = not minimized
+	tween(main, {Size = minimized and MINI_SIZE or FULL_SIZE}, 0.2)
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+	main.Visible = false
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.RightShift then
+		main.Visible = not main.Visible
+	end
+end)
+
+-- ======================================================
+-- TABS + UI HELPERS
+-- ======================================================
+local pages = {}
+local tabButtons = {}
+
+local function showPage(name)
+	for pageName, page in pairs(pages) do
+		page.Visible = (pageName == name)
+	end
+	for tabName, btn in pairs(tabButtons) do
+		local active = (tabName == name)
+		tween(btn, {
+			BackgroundColor3 = active and THEME.accent or THEME.panel,
+			BackgroundTransparency = active and 0 or 0.5,
+		})
+		btn.TextColor3 = active and Color3.new(1, 1, 1) or THEME.sub
+	end
+end
+
+local function createPage(name)
+	local page = Instance.new("ScrollingFrame")
+	page.Name = name
+	page.Size = UDim2.fromScale(1, 1)
+	page.BackgroundTransparency = 1
+	page.BorderSizePixel = 0
+	page.ScrollBarThickness = 3
+	page.ScrollBarImageColor3 = THEME.accent
+	page.CanvasSize = UDim2.new()
+	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	page.Visible = false
+	page.Parent = content
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 8)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = page
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingRight = UDim.new(0, 6)
+	pad.PaddingBottom = UDim.new(0, 6)
+	pad.Parent = page
+
+	pages[name] = page
+	return page
+end
+
+local function addTab(name, index)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1, -16, 0, 34)
+	b.Position = UDim2.fromOffset(8, 8 + (index - 1) * 40)
+	b.BackgroundColor3 = THEME.panel
+	b.BackgroundTransparency = 0.5
+	b.Text = name
+	b.TextColor3 = THEME.sub
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 14
+	b.AutoButtonColor = false
+	b.Parent = sidebar
+	corner(b, 8)
+	b.MouseButton1Click:Connect(function() showPage(name) end)
+	tabButtons[name] = b
+end
+
+local function addSection(page, text)
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.new(1, 0, 0, 18)
+	l.BackgroundTransparency = 1
+	l.Text = string.upper(text)
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.TextColor3 = THEME.accent2
+	l.Font = Enum.Font.GothamBold
+	l.TextSize = 12
+	l.Parent = page
+	return l
+end
+
+local function addNote(page, text)
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.new(1, 0, 0, 30)
+	l.BackgroundTransparency = 1
+	l.Text = text
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.TextYAlignment = Enum.TextYAlignment.Top
+	l.TextWrapped = true
+	l.TextColor3 = THEME.sub
+	l.Font = Enum.Font.Gotham
+	l.TextSize = 12
+	l.Parent = page
+	return l
+end
+
+local function addToggle(page, text, callback)
+	local row = Instance.new("TextButton")
+	row.Size = UDim2.new(1, 0, 0, 40)
+	row.BackgroundColor3 = THEME.panel
+	row.Text = ""
+	row.AutoButtonColor = false
+	row.Parent = page
+	corner(row, 8)
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -70, 1, 0)
+	label.Position = UDim2.fromOffset(12, 0)
+	label.BackgroundTransparency = 1
+	label.Text = text
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextColor3 = THEME.text
+	label.Font = Enum.Font.GothamMedium
+	label.TextSize = 14
+	label.Parent = row
+
+	local track = Instance.new("Frame")
+	track.Size = UDim2.fromOffset(44, 22)
+	track.AnchorPoint = Vector2.new(1, 0.5)
+	track.Position = UDim2.new(1, -10, 0.5, 0)
+	track.BackgroundColor3 = THEME.off
+	track.BorderSizePixel = 0
+	track.Parent = row
+	corner(track, 11)
+
+	local knob = Instance.new("Frame")
+	knob.Size = UDim2.fromOffset(16, 16)
+	knob.Position = UDim2.fromOffset(3, 3)
+	knob.BackgroundColor3 = Color3.new(1, 1, 1)
+	knob.BorderSizePixel = 0
+	knob.Parent = track
+	corner(knob, 8)
+
+	local state = false
+	local function setState(value)
+		state = value
+		tween(track, {BackgroundColor3 = state and THEME.accent or THEME.off})
+		tween(knob, {Position = state and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3)})
+		callback(state)
+	end
+	row.MouseButton1Click:Connect(function()
+		setState(not state)
+	end)
+
+	row.MouseEnter:Connect(function() tween(row, {BackgroundColor3 = THEME.panelHover}) end)
+	row.MouseLeave:Connect(function() tween(row, {BackgroundColor3 = THEME.panel}) end)
+
+	return row, setState
+end
+
+local function addButton(page, text, callback)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1, 0, 0, 40)
+	b.BackgroundColor3 = THEME.accent
+	b.Text = text
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 14
+	b.AutoButtonColor = true
+	b.Parent = page
+	corner(b, 8)
+
+	local g = Instance.new("UIGradient")
+	g.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(190, 190, 220)),
+	})
+	g.Rotation = 90
+	g.Parent = b
+
+	b.MouseButton1Click:Connect(callback)
+	return b
+end
+
+-- ======================================================
+-- PAGES
+-- ======================================================
+local visuals = createPage("Visuals")
+local combat = createPage("Combat")
+local movement = createPage("Movement")
+local flingPage = createPage("Fling")
+local playersPage = createPage("Players")
+
+addTab("Visuals", 1)
+addTab("Combat", 2)
+addTab("Movement", 3)
+addTab("Fling", 4)
+addTab("Players", 5)
+
+-- ---------- Visuals ----------
+addSection(visuals, "Visuals")
+addToggle(visuals, "ESP", function(on)
+	espEnabled = on
+	refreshESP()
+end)
+addNote(visuals, "Outlines players through walls and shows their name and distance.")
+
+-- ---------- Combat ----------
+addSection(combat, "Aim")
+addToggle(combat, "Aimbot", function(on)
+	aimbotEnabled = on
+end)
+addNote(combat, "Turn on, then hold Right Mouse Button to lock onto the closest player to your cursor.")
+
+-- ---------- Movement ----------
+addSection(movement, "Speed")
+
+do
+	-- start from the game's real walk speed
+	local hum0 = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum0 then
+		currentSpeed = math.floor(hum0.WalkSpeed)
+		NORMAL_SPEED = currentSpeed
+	end
+end
+
+-- toggle: on = forced walk speed, off = normal game speed
+local _, setSpeedState = addToggle(movement, "Speed", function(on)
+	speedEnabled = on
+	applySpeed()
+end)
+
+local speedRow = Instance.new("Frame")
+speedRow.Size = UDim2.new(1, 0, 0, 40)
+speedRow.BackgroundColor3 = THEME.panel
+speedRow.Parent = movement
+corner(speedRow, 8)
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1, -110, 1, 0)
+speedLabel.Position = UDim2.fromOffset(12, 0)
+speedLabel.BackgroundTransparency = 1
+speedLabel.Text = "Speed: " .. currentSpeed
+speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+speedLabel.TextColor3 = THEME.text
+speedLabel.Font = Enum.Font.GothamMedium
+speedLabel.TextSize = 14
+speedLabel.Parent = speedRow
+
+local function setSpeed(value)
+	currentSpeed = math.clamp(value, MIN_SPEED, MAX_SPEED)
+	speedLabel.Text = "Speed: " .. currentSpeed
+	applySpeed()
+end
+
+local function makeStepButton(text, xOffset)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(40, 28)
+	b.AnchorPoint = Vector2.new(1, 0.5)
+	b.Position = UDim2.new(1, xOffset, 0.5, 0)
+	b.BackgroundColor3 = THEME.accent
+	b.Text = text
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 15
+	b.AutoButtonColor = true
+	b.Parent = speedRow
+	corner(b, 6)
+	return b
+end
+
+local plusButton = makeStepButton("+1", -8)
+local minusButton = makeStepButton("-1", -54)
+
+plusButton.MouseButton1Click:Connect(function() setSpeed(currentSpeed + 1) end)
+minusButton.MouseButton1Click:Connect(function() setSpeed(currentSpeed - 1) end)
+
+addButton(movement, "RESET SPEED", function()
+	setSpeed(NORMAL_SPEED)
+	setSpeedState(false) -- toggles Speed off and restores the game's normal speed
+end)
+
+addNote(movement, "Toggle Speed on, then use +1 / -1 to change it. RESET SPEED turns the toggle off and gives you back normal walk speed.")
+
+addSection(movement, "Fly")
+
+local setFlyState
+do
+	local _, setter = addToggle(movement, "Fly  [F]", function(on)
+		flyEnabled = on
+		if on then startFly() else stopFly() end
+	end)
+	setFlyState = setter
+end
+
+local flyRow = Instance.new("Frame")
+flyRow.Size = UDim2.new(1, 0, 0, 40)
+flyRow.BackgroundColor3 = THEME.panel
+flyRow.Parent = movement
+corner(flyRow, 8)
+
+local flyLabel = Instance.new("TextLabel")
+flyLabel.Size = UDim2.new(1, -110, 1, 0)
+flyLabel.Position = UDim2.fromOffset(12, 0)
+flyLabel.BackgroundTransparency = 1
+flyLabel.Text = "Fly speed: " .. flySpeed
+flyLabel.TextXAlignment = Enum.TextXAlignment.Left
+flyLabel.TextColor3 = THEME.text
+flyLabel.Font = Enum.Font.GothamMedium
+flyLabel.TextSize = 14
+flyLabel.Parent = flyRow
+
+local function setFlySpeed(value)
+	flySpeed = math.clamp(value, MIN_FLY, MAX_FLY)
+	flyLabel.Text = "Fly speed: " .. flySpeed
+end
+
+local function makeFlyStep(text, xOffset, delta)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(40, 28)
+	b.AnchorPoint = Vector2.new(1, 0.5)
+	b.Position = UDim2.new(1, xOffset, 0.5, 0)
+	b.BackgroundColor3 = THEME.accent
+	b.Text = text
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 15
+	b.AutoButtonColor = true
+	b.Parent = flyRow
+	corner(b, 6)
+	b.MouseButton1Click:Connect(function() setFlySpeed(flySpeed + delta) end)
+end
+
+makeFlyStep("+5", -8, 5)
+makeFlyStep("-5", -54, -5)
+addNote(movement, "Move with WASD, Space = up, Left Ctrl = down. Press F to toggle.")
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.F then
+		setFlyState(not flyEnabled)
+	end
+end)
+
+addSection(movement, "Jump")
+addButton(movement, "LAUNCH ME", function()
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if root then
+		root.AssemblyLinearVelocity = Vector3.new(0, 120, 0)
+	end
+end)
+addNote(movement, "Launch Me shoots your own character into the air.")
+
+-- ---------- Fling (multi-target) ----------
+do
+	local flingStatusLabel = addNote(flingPage, "0 target(s) selected")
+
+	updateFlingStatus = function()
+		local count = 0
+		for _ in pairs(selectedTargets) do count = count + 1 end
+		if flingActive then
+			flingStatusLabel.Text = "Flinging " .. count .. " target(s)!"
+			flingStatusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
+		else
+			flingStatusLabel.Text = count .. " target(s) selected"
+			flingStatusLabel.TextColor3 = THEME.sub
+		end
+	end
+
+	local flingCountUI = 200
+	local function nextOrder()
+		flingCountUI = flingCountUI + 1
+		return flingCountUI
+	end
+
+	-- target checkbox list
+	local targetsSection = addSection(flingPage, "Targets")
+	targetsSection.LayoutOrder = 99
+
+	updateFlingList = function()
+		for _, child in ipairs(flingPage:GetChildren()) do
+			if child.Name == "FlingPlayerBtn" then child:Destroy() end
+		end
+
+		local list = Players:GetPlayers()
+		table.sort(list, function(a, b) return a.Name:lower() < b.Name:lower() end)
+
+		local listIndex = 0
+		for _, plr in ipairs(list) do
+			if plr ~= player then
+				local selected = selectedTargets[plr.Name] ~= nil
+				listIndex = listIndex + 1
+				local btn = Instance.new("TextButton")
+				btn.Name = "FlingPlayerBtn"
+				btn.LayoutOrder = 100 + listIndex
+				btn.Size = UDim2.new(1, 0, 0, 36)
+				btn.BackgroundColor3 = selected and THEME.accent or THEME.panel
+				btn.TextColor3 = selected and Color3.new(1, 1, 1) or THEME.sub
+				btn.Font = Enum.Font.GothamMedium
+				btn.TextSize = 14
+				btn.Text = (selected and "✓  " or "       ") .. plr.DisplayName
+				btn.AutoButtonColor = false
+				btn.Parent = flingPage
+				corner(btn, 8)
+				btn.MouseEnter:Connect(function()
+					if not selected then tween(btn, {BackgroundColor3 = THEME.panelHover}) end
+				end)
+				btn.MouseLeave:Connect(function()
+					if not selected then tween(btn, {BackgroundColor3 = THEME.panel}) end
+				end)
+				btn.MouseButton1Click:Connect(function()
+					if selectedTargets[plr.Name] then
+						selectedTargets[plr.Name] = nil
+					else
+						selectedTargets[plr.Name] = plr
+					end
+					updateFlingList()
+					updateFlingStatus()
+				end)
+			end
+		end
+		updateFlingStatus()
+	end
+
+	-- START FLING / STOP FLING
+	local function addFlingRow(leftText, leftColor, leftCallback, rightText, rightColor, rightCallback)
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, 0, 0, 40)
+		row.BackgroundTransparency = 1
+		row.LayoutOrder = nextOrder()
+		row.Parent = flingPage
+
+		local function half(text, xOffset, color, callback)
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(0.5, -6, 1, 0)
+			b.Position = UDim2.new(xOffset, xOffset == 0 and 0 or 6, 0, 0)
+			b.BackgroundColor3 = color
+			b.Text = text
+			b.TextColor3 = Color3.new(1, 1, 1)
+			b.Font = Enum.Font.GothamBold
+			b.TextSize = 14
+			b.AutoButtonColor = true
+			b.Parent = row
+			corner(b, 8)
+			local g = Instance.new("UIGradient")
+			g.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 180, 200)),
+			})
+			g.Rotation = 90
+			g.Parent = b
+			b.MouseButton1Click:Connect(callback)
+		end
+
+		half(leftText, 0, leftColor, leftCallback)
+		half(rightText, 0.5, rightColor, rightCallback)
+	end
+
+	local controlsSection = addSection(flingPage, "Controls")
+	controlsSection.LayoutOrder = nextOrder()
+
+	addFlingRow(
+		"START FLING", Color3.fromRGB(0, 170, 70), startFling,
+		"STOP FLING", Color3.fromRGB(190, 40, 40), stopFling
+	)
+
+	local allSection = addSection(flingPage, "Select")
+	allSection.LayoutOrder = nextOrder()
+
+	addFlingRow(
+		"SELECT ALL", THEME.panel, function()
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= player then selectedTargets[plr.Name] = plr end
+			end
+			updateFlingList()
+		end,
+		"SELECT NONE", THEME.panel, function()
+			selectedTargets = {}
+			updateFlingList()
+		end
+	)
+
+	local flingHint = addNote(flingPage, "Pick targets above, then press START FLING to keep launching them until you press STOP FLING. You keep walking freely while it flings.")
+	flingHint.LayoutOrder = nextOrder()
+
+	updateFlingList()
+end
+
+-- ---------- Players (teleport) ----------
+addSection(playersPage, "Teleport to player")
+
+local function teleportTo(target)
+	local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	local theirRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+	if myRoot and theirRoot then
+		myRoot.CFrame = theirRoot.CFrame + Vector3.new(0, 3, 0)
+	end
+end
+
+local function refreshList()
+	for _, child in ipairs(playersPage:GetChildren()) do
+		if child.Name == "PlayerBtn" then child:Destroy() end
+	end
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then
+			local btn = Instance.new("TextButton")
+			btn.Name = "PlayerBtn"
+			btn.Size = UDim2.new(1, 0, 0, 36)
+			btn.BackgroundColor3 = THEME.panel
+			btn.TextColor3 = THEME.text
+			btn.Font = Enum.Font.GothamMedium
+			btn.TextSize = 14
+			btn.Text = plr.DisplayName
+			btn.AutoButtonColor = false
+			btn.Parent = playersPage
+			corner(btn, 8)
+			btn.MouseEnter:Connect(function() tween(btn, {BackgroundColor3 = THEME.accent}) end)
+			btn.MouseLeave:Connect(function() tween(btn, {BackgroundColor3 = THEME.panel}) end)
+			btn.MouseButton1Click:Connect(function()
+				teleportTo(plr)
+			end)
+		end
+	end
+end
+
+-- ======================================================
+-- PLAYER EVENTS
+-- ======================================================
+local function watchPlayer(plr)
+	plr.CharacterAdded:Connect(function()
+		task.wait(0.5)
+		if espEnabled then applyESP(plr) end
+	end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+	watchPlayer(plr)
+end
+
+Players.PlayerAdded:Connect(function(plr)
+	watchPlayer(plr)
+	refreshList()
+	updateFlingList()
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+	clearESP(plr)
+	selectedTargets[plr.Name] = nil
+	task.defer(function()
+		refreshList()
+		updateFlingList()
+	end)
+end)
+
+refreshList()
+showPage("Visuals")
